@@ -1,0 +1,3 @@
+remote: pcloud/policies
+path: policies/cloudops.policy.yml
+ref: master
