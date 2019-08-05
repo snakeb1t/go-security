@@ -2,6 +2,7 @@ version: 2
 jobs:
   build:
     docker:
+      # TODO: use image that has softhsm installed. can just apt-get install libsofthsm2 on circleci/golang:1.12
       - image: circleci/golang:1.12
 
     working_directory: /go/src/github.com/choria-io/go-security
