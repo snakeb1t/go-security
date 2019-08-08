@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/choria-io/go-security/filesec"
+	"github.com/howeyc/gopass"
 	"github.com/miekg/pkcs11"
 	"github.com/miekg/pkcs11/p11"
 	"github.com/pkg/errors"
@@ -121,18 +122,45 @@ func New(opts ...Option) (*Pkcs11Security, error) {
 		return nil, errors.New("pkcs11: PKCS11DriverFile option is required")
 	}
 
+	if p.pin != "" {
+		if err := p.loginToToken(); err != nil {
+			return nil, errors.Wrap(err, "failed to login to token in New()")
+		}
+	}
+
+	return p, p.reinit()
+}
+
+func promptForPin() (string, error) {
+	byteStr, err := gopass.GetPasswdPrompt("PIN: ", false, os.Stdin, os.Stdout)
+	if err != nil {
+		return "", err
+	}
+	return string(byteStr), nil
+}
+
+func (p *Pkcs11Security) loginToToken() error {
+
+	var err error
+	if p.pin == "" {
+		p.pin, err = promptForPin()
+		if err != nil {
+			return err
+		}
+	}
+
 	p.log.Debugf("Attempting to open PKCS11 driver file %s", p.conf.PKCS11DriverFile)
 
 	module, err := p11.OpenModule(p.conf.PKCS11DriverFile)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open PKCS11 driver file %s", p.conf.PKCS11DriverFile)
+		return errors.Wrapf(err, "failed to open PKCS11 driver file %s", p.conf.PKCS11DriverFile)
 	}
 
 	p.log.Debug("Attempting to fetch PKCS11 driver slots")
 
 	slots, err := module.Slots()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch PKCS11 driver slots")
+		return errors.Wrap(err, "failed to fetch PKCS11 driver slots")
 	}
 
 	var slot *p11.Slot
@@ -150,14 +178,14 @@ func New(opts ...Option) (*Pkcs11Security, error) {
 		if len(slots) == 1 {
 			slot = &slots[0]
 		} else {
-			return nil, fmt.Errorf("failed to find slot with label %d", p.conf.PKCS11Slot)
+			return fmt.Errorf("failed to find slot with label %d", p.conf.PKCS11Slot)
 		}
 	}
 	p.log.Debugf("Attempting to open session for selected slot %d", p.conf.PKCS11Slot)
 
 	session, err := slot.OpenSession()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to open PKCS11 session")
+		return errors.Wrap(err, "failed to open PKCS11 session")
 	}
 
 	p.session = session
@@ -165,35 +193,35 @@ func New(opts ...Option) (*Pkcs11Security, error) {
 	err = session.Login(p.pin)
 	if err != nil {
 		if !strings.Contains(err.Error(), "CKR_USER_ALREADY_LOGGED_IN") {
-			return nil, errors.Wrapf(err, "failed to login with provided pin: (%s)", err.Error())
+			return errors.Wrapf(err, "failed to login with provided pin: (%s)", err.Error())
 		}
 	}
 
 	p.log.Debug("Attempting to find private key object")
 	privateKeyObject, err := session.FindObject([]*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to find private key object")
+		return errors.Wrap(err, "failed to find private key object")
 	}
 
 	p.log.Debug("Attempting to find certificate object")
 	certObject, err := session.FindObject([]*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_CERTIFICATE)})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to find certificate object")
+		return errors.Wrap(err, "failed to find certificate object")
 	}
 
 	certData, err := certObject.Value()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get certificate object value")
+		return errors.Wrap(err, "failed to get certificate object value")
 	}
 
 	parsedCert, err := x509.ParseCertificate(certData)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse X509 certificate")
+		return errors.Wrap(err, "failed to parse X509 certificate")
 	}
 
 	pubKey, ok := parsedCert.PublicKey.(crypto.PublicKey)
 	if !ok {
-		return nil, errors.New("public key in certificate is not a crypto.PublicKey")
+		return errors.New("public key in certificate is not a crypto.PublicKey")
 	}
 
 	privateKey := p11.PrivateKey(privateKeyObject)
@@ -209,7 +237,7 @@ func New(opts ...Option) (*Pkcs11Security, error) {
 		PrivateKey:  p.pKey,
 	}
 
-	return p, p.reinit()
+	return nil
 }
 
 func (p *Pkcs11Security) reinit() error {
@@ -285,6 +313,13 @@ func (p *Pkcs11Security) SignBytes(str []byte) ([]byte, error) {
 	mechanism := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)
 	input := append(hashPrefixes[crypto.SHA256], hashed...)
 
+	if p.pin == "" {
+		p.log.Debug("Attempting to login to token in SignBytes()")
+		if err := p.loginToToken(); err != nil {
+			return nil, errors.Wrap(err, "failed to login to token in SignBytes()")
+		}
+	}
+
 	output, err := p.pKey.PrivateKey.Sign(*mechanism, input)
 	if err != nil {
 		return nil, err
@@ -297,6 +332,14 @@ func (p *Pkcs11Security) SignBytes(str []byte) ([]byte, error) {
 func (p *Pkcs11Security) VerifyByteSignature(dat []byte, sig []byte, identity string) bool {
 	var cert *x509.Certificate
 	pubkeyPath := "pkcs11 certificate"
+
+	if p.pin == "" {
+		p.log.Debug("Attempting to login to token in VerifyByteSignature()")
+		if err := p.loginToToken(); err != nil {
+			p.log.Errorf("%s: failed to login to token in VerifyByteSignature()", err.Error())
+			return false
+		}
+	}
 
 	if identity != "" {
 		pubkeyPath, err := p.cachePath(identity)
@@ -370,6 +413,12 @@ func (p *Pkcs11Security) SignString(str string) ([]byte, error) {
 
 // CallerName creates a choria like caller name in the form of choria=identity
 func (p *Pkcs11Security) CallerName() string {
+	if p.pin == "" {
+		p.log.Debug("Attempting to login to token in CallerName()")
+		if err := p.loginToToken(); err != nil {
+			return "invalid"
+		}
+	}
 	return fmt.Sprintf("choria=%s", p.cert.Leaf.Subject.CommonName)
 }
 
@@ -397,6 +446,13 @@ func (p *Pkcs11Security) VerifyCertificate(certpem []byte, name string) error {
 // PublicCertPem retrieves the public certificate for this instance
 func (p *Pkcs11Security) PublicCertPem() (*pem.Block, error) {
 
+	if p.pin == "" {
+		p.log.Debug("Attempting to login to token in PublicCertPem()")
+		if err := p.loginToToken(); err != nil {
+			return nil, errors.Wrap(err, "failed to login to token in PublicCertPem()")
+		}
+	}
+
 	pb := &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: p.cert.Leaf.Raw,
@@ -421,6 +477,12 @@ func (p *Pkcs11Security) PublicCertTXT() ([]byte, error) {
 
 // Identity determines the choria certname
 func (p *Pkcs11Security) Identity() string {
+	if p.pin == "" {
+		p.log.Debug("Attempting to login to token in Identity()")
+		if err := p.loginToToken(); err != nil {
+			return "invalid"
+		}
+	}
 	return p.cert.Leaf.Subject.CommonName
 }
 
@@ -430,6 +492,13 @@ func (p *Pkcs11Security) TLSConfig() (*tls.Config, error) {
 	caCert, err := ioutil.ReadFile(p.conf.CAFile)
 	if err != nil {
 		return nil, err
+	}
+
+	if p.pin == "" {
+		p.log.Debug("Attempting to login to token in TLSConfig()")
+		if err = p.loginToToken(); err != nil {
+			return nil, errors.Wrap(err, "failed to login to token in TLSConfig()")
+		}
 	}
 
 	caCertPool := x509.NewCertPool()

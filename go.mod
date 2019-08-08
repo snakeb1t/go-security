@@ -7,6 +7,7 @@ require (
 	github.com/choria-io/go-puppet v0.0.1
 	github.com/choria-io/go-srvcache v0.0.1
 	github.com/golang/mock v1.3.1
+	github.com/howeyc/gopass v0.0.0-20170109162249-bf9dde6d0d2c
 	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/miekg/pkcs11 v1.0.2
 	github.com/onsi/ginkgo v1.8.0
