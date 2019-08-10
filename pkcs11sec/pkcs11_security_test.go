@@ -20,6 +20,25 @@ func TestFileSecurity(t *testing.T) {
 	RunSpecs(t, "Security/Pkcs11")
 }
 
+func setupStdin(pin string) error {
+	tmpfile, err := ioutil.TempFile("", "stdin")
+	if err != nil {
+		return err
+	}
+
+	if _, err := tmpfile.Write([]byte(pin+"\n")); err != nil {
+		return err
+	}
+
+	if _, err := tmpfile.Seek(0, 0); err != nil {
+		return err
+	}
+
+	os.Stdin = tmpfile
+
+	return nil
+}
+
 var _ = Describe("Pkcs11SSL", func() {
 
 	var err error
@@ -81,6 +100,18 @@ var _ = Describe("Pkcs11SSL", func() {
 			Expect(prov.conf.CAFile).To(Equal("../testdata/good/certs/ca.pem"))
 			Expect(prov.conf.CertCacheDir).To(Equal("../testdata/good/certs"))
 			Expect(prov.conf.DisableTLSVerify).To(BeTrue())
+		})
+	})
+	Describe("Pin Prompting", func() {
+		It("Should create usable provider interface", func() {
+			prov, err := New(WithChoriaConfig(c), WithPKCSConfigOptions(conf), WithLog(l.WithFields(logrus.Fields{})))
+			Expect(err).ToNot(HaveOccurred())
+
+			err = setupStdin(pin)
+			Expect(err).ToNot(HaveOccurred())
+			defer os.Remove(os.Stdin.Name())
+
+			Expect(prov.Identity()).To(Equal("joeuser"))
 		})
 	})
 	Describe("Validate", func() {

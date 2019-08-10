@@ -45,7 +45,7 @@ type Pkcs11Security struct {
 
 	cert    *tls.Certificate
 	pKey    *PrivateKey
-	pin     string
+	pin     *string
 	session p11.Session
 }
 
@@ -122,7 +122,7 @@ func New(opts ...Option) (*Pkcs11Security, error) {
 		return nil, errors.New("pkcs11: PKCS11DriverFile option is required")
 	}
 
-	if p.pin != "" {
+	if p.pin != nil {
 		if err := p.loginToToken(); err != nil {
 			return nil, errors.Wrap(err, "failed to login to token in New()")
 		}
@@ -131,18 +131,19 @@ func New(opts ...Option) (*Pkcs11Security, error) {
 	return p, p.reinit()
 }
 
-func promptForPin() (string, error) {
+func promptForPin() (*string, error) {
 	byteStr, err := gopass.GetPasswdPrompt("PIN: ", false, os.Stdin, os.Stdout)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(byteStr), nil
+	str := string(byteStr)
+	return &str, nil
 }
 
 func (p *Pkcs11Security) loginToToken() error {
 
 	var err error
-	if p.pin == "" {
+	if p.pin == nil {
 		p.pin, err = promptForPin()
 		if err != nil {
 			return err
@@ -190,7 +191,7 @@ func (p *Pkcs11Security) loginToToken() error {
 
 	p.session = session
 
-	err = session.Login(p.pin)
+	err = session.Login(*p.pin)
 	if err != nil {
 		if !strings.Contains(err.Error(), "CKR_USER_ALREADY_LOGGED_IN") {
 			return errors.Wrapf(err, "failed to login with provided pin: (%s)", err.Error())
@@ -313,7 +314,7 @@ func (p *Pkcs11Security) SignBytes(str []byte) ([]byte, error) {
 	mechanism := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)
 	input := append(hashPrefixes[crypto.SHA256], hashed...)
 
-	if p.pin == "" {
+	if p.pin == nil {
 		p.log.Debug("Attempting to login to token in SignBytes()")
 		if err := p.loginToToken(); err != nil {
 			return nil, errors.Wrap(err, "failed to login to token in SignBytes()")
@@ -333,7 +334,7 @@ func (p *Pkcs11Security) VerifyByteSignature(dat []byte, sig []byte, identity st
 	var cert *x509.Certificate
 	pubkeyPath := "pkcs11 certificate"
 
-	if p.pin == "" {
+	if p.pin == nil {
 		p.log.Debug("Attempting to login to token in VerifyByteSignature()")
 		if err := p.loginToToken(); err != nil {
 			p.log.Errorf("%s: failed to login to token in VerifyByteSignature()", err.Error())
@@ -413,7 +414,7 @@ func (p *Pkcs11Security) SignString(str string) ([]byte, error) {
 
 // CallerName creates a choria like caller name in the form of choria=identity
 func (p *Pkcs11Security) CallerName() string {
-	if p.pin == "" {
+	if p.pin == nil {
 		p.log.Debug("Attempting to login to token in CallerName()")
 		if err := p.loginToToken(); err != nil {
 			return "invalid"
@@ -446,7 +447,7 @@ func (p *Pkcs11Security) VerifyCertificate(certpem []byte, name string) error {
 // PublicCertPem retrieves the public certificate for this instance
 func (p *Pkcs11Security) PublicCertPem() (*pem.Block, error) {
 
-	if p.pin == "" {
+	if p.pin == nil {
 		p.log.Debug("Attempting to login to token in PublicCertPem()")
 		if err := p.loginToToken(); err != nil {
 			return nil, errors.Wrap(err, "failed to login to token in PublicCertPem()")
@@ -477,7 +478,7 @@ func (p *Pkcs11Security) PublicCertTXT() ([]byte, error) {
 
 // Identity determines the choria certname
 func (p *Pkcs11Security) Identity() string {
-	if p.pin == "" {
+	if p.pin == nil {
 		p.log.Debug("Attempting to login to token in Identity()")
 		if err := p.loginToToken(); err != nil {
 			return "invalid"
@@ -494,7 +495,7 @@ func (p *Pkcs11Security) TLSConfig() (*tls.Config, error) {
 		return nil, err
 	}
 
-	if p.pin == "" {
+	if p.pin == nil {
 		p.log.Debug("Attempting to login to token in TLSConfig()")
 		if err = p.loginToToken(); err != nil {
 			return nil, errors.Wrap(err, "failed to login to token in TLSConfig()")

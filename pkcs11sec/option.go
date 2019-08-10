@@ -49,7 +49,7 @@ func WithLog(l *logrus.Entry) Option {
 
 func WithPin(pin string) Option {
 	return func(p *Pkcs11Security) error {
-		p.pin = pin
+		p.pin = &pin
 
 		return nil
 	}
