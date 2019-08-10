@@ -50,7 +50,7 @@ type Pkcs11Security struct {
 }
 
 type PrivateKey struct {
-	PublicKey  *crypto.PublicKey
+	PublicKey  crypto.PublicKey
 	PrivateKey *p11.PrivateKey
 }
 
@@ -232,7 +232,7 @@ func (p *Pkcs11Security) loginToToken() error {
 	privateKey := p11.PrivateKey(privateKeyObject)
 
 	p.pKey = &PrivateKey{
-		PublicKey:  &pubKey,
+		PublicKey:  pubKey,
 		PrivateKey: &privateKey,
 	}
 
