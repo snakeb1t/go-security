@@ -220,6 +220,10 @@ func (p *Pkcs11Security) loginToToken() error {
 		return errors.Wrap(err, "failed to parse X509 certificate")
 	}
 
+	if parsedCert.Subject.CommonName == "" {
+		return errors.New("cert on token must have valid CommonName")
+	}
+
 	pubKey, ok := parsedCert.PublicKey.(crypto.PublicKey)
 	if !ok {
 		return errors.New("public key in certificate is not a crypto.PublicKey")
@@ -508,6 +512,9 @@ func (p *Pkcs11Security) TLSConfig() (*tls.Config, error) {
 	tlsc := &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{*p.cert},
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return p.cert, nil
+		},
 		ClientCAs:    caCertPool,
 		RootCAs:      caCertPool,
 	}
