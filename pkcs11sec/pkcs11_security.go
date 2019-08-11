@@ -510,6 +510,10 @@ func (p *Pkcs11Security) TLSConfig() (*tls.Config, error) {
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	tlsc := &tls.Config{
+		PreferServerCipherSuites: true,
+		CipherSuites: []uint16{
+			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
+		},
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{*p.cert},
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
